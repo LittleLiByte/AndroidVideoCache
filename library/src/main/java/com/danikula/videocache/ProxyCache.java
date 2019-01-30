@@ -1,7 +1,6 @@
 package com.danikula.videocache;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import android.util.Log;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -17,8 +16,7 @@ import static com.danikula.videocache.Preconditions.checkNotNull;
  * @author Alexey Danilov (danikula@gmail.com).
  */
 class ProxyCache {
-
-    private static final Logger LOG = LoggerFactory.getLogger("ProxyCache");
+    public static final String TAG=ProxyCache.class.getSimpleName();
     private static final int MAX_READ_SOURCE_ATTEMPTS = 1;
 
     private final Source source;
@@ -27,7 +25,7 @@ class ProxyCache {
     private final Object stopLock = new Object();
     private final AtomicInteger readSourceErrorsCount;
     private volatile Thread sourceReaderThread;
-    private volatile boolean stopped;
+    protected volatile boolean stopped;
     private volatile int percentsAvailable = -1;
 
     public ProxyCache(Source source, Cache cache) {
@@ -60,9 +58,16 @@ class ProxyCache {
         }
     }
 
+    /**
+     *  暂停缓存写入
+     */
+    public void pauseCache(boolean isPause){
+        stopped = isPause;
+    }
+
     public void shutdown() {
         synchronized (stopLock) {
-            LOG.debug("Shutdown proxy for " + source);
+            Log.i(TAG, "Shutdown proxy for " + source);
             try {
                 stopped = true;
                 if (sourceReaderThread != null) {
@@ -165,6 +170,7 @@ class ProxyCache {
 
     private void closeSource() {
         try {
+            Log.d(TAG, "close sources!!!");
             source.close();
         } catch (ProxyCacheException e) {
             onError(new ProxyCacheException("Error closing source " + source, e));
@@ -174,9 +180,9 @@ class ProxyCache {
     protected final void onError(final Throwable e) {
         boolean interruption = e instanceof InterruptedProxyCacheException;
         if (interruption) {
-            LOG.debug("ProxyCache is interrupted");
+            Log.i(TAG, "ProxyCache is interrupted");
         } else {
-            LOG.error("ProxyCache error", e);
+            Log.e(TAG, "ProxyCache error", e);
         }
     }
 

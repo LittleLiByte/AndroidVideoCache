@@ -15,6 +15,8 @@ import java.io.RandomAccessFile;
 public class FileCache implements Cache {
 
     private static final String TEMP_POSTFIX = ".download";
+    private static final String DOWNLOAD_TEMP_POSTFIX = ".dltmp";
+
 
     private final DiskUsage diskUsage;
     public File file;
@@ -22,6 +24,16 @@ public class FileCache implements Cache {
 
     public FileCache(File file) throws ProxyCacheException {
         this(file, new UnlimitedDiskUsage());
+    }
+
+    public FileCache(String downloadFilePath) throws ProxyCacheException{
+        try {
+            this.diskUsage = new UnlimitedDiskUsage();
+            this.file = new File(downloadFilePath);
+            this.dataFile = new RandomAccessFile(this.file, "rw");
+        } catch (IOException e) {
+            throw new ProxyCacheException("Error using file " + file + " as disc cache", e);
+        }
     }
 
     public FileCache(File file, DiskUsage diskUsage) throws ProxyCacheException {
@@ -91,7 +103,13 @@ public class FileCache implements Cache {
         }
 
         close();
-        String fileName = file.getName().substring(0, file.getName().length() - TEMP_POSTFIX.length());
+        String fileName;
+        if (file.getName().endsWith(DOWNLOAD_TEMP_POSTFIX)) {
+            //临时下载文件
+            fileName = file.getName().substring(0, file.getName().length() - DOWNLOAD_TEMP_POSTFIX.length());
+        } else {
+            fileName = file.getName().substring(0, file.getName().length() - TEMP_POSTFIX.length());
+        }
         File completedFile = new File(file.getParentFile(), fileName);
         boolean renamed = file.renameTo(completedFile);
         if (!renamed) {
@@ -121,7 +139,7 @@ public class FileCache implements Cache {
     }
 
     private boolean isTempFile(File file) {
-        return file.getName().endsWith(TEMP_POSTFIX);
+        return file.getName().endsWith(TEMP_POSTFIX)||file.getName().endsWith(DOWNLOAD_TEMP_POSTFIX);
     }
 
 }

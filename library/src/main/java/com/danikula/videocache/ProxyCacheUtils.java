@@ -1,10 +1,8 @@
 package com.danikula.videocache;
 
 import android.text.TextUtils;
+import android.util.Log;
 import android.webkit.MimeTypeMap;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -24,8 +22,7 @@ import static com.danikula.videocache.Preconditions.checkNotNull;
  * @author Alexey Danilov (danikula@gmail.com).
  */
 public class ProxyCacheUtils {
-
-    private static final Logger LOG = LoggerFactory.getLogger("ProxyCacheUtils");
+    public static final String TAG=ProxyCacheUtils.class.getSimpleName();
     static final int DEFAULT_BUFFER_SIZE = 8 * 1024;
     static final int MAX_ARRAY_PREVIEW = 16;
 
@@ -72,7 +69,7 @@ public class ProxyCacheUtils {
             try {
                 closeable.close();
             } catch (IOException e) {
-                LOG.error("Error closing resource", e);
+                Log.e(TAG, "Error closing resource", e );
             }
         }
     }

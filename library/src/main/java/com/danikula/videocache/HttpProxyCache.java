@@ -1,6 +1,7 @@
 package com.danikula.videocache;
 
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.danikula.videocache.file.FileCache;
 
@@ -18,12 +19,15 @@ import static com.danikula.videocache.ProxyCacheUtils.DEFAULT_BUFFER_SIZE;
  * @author Alexey Danilov (danikula@gmail.com).
  */
 class HttpProxyCache extends ProxyCache {
+    public static final String TAG = HttpProxyCache.class.getSimpleName();
 
-    private static final float NO_CACHE_BARRIER = .2f;
+    //如果seek只是超出少许（这里设置为2M）仍然走缓存
+    private static final int MINI_OFFSET_CACHE= 1024 * 1024 * 2;
 
     private final HttpUrlSource source;
     private final FileCache cache;
     private CacheListener listener;
+    private boolean isForceCancel = false;
 
     public HttpProxyCache(HttpUrlSource source, FileCache cache) {
         super(source, cache);
@@ -41,11 +45,23 @@ class HttpProxyCache extends ProxyCache {
         out.write(responseHeaders.getBytes("UTF-8"));
 
         long offset = request.rangeOffset;
-        if (isUseCache(request)) {
+
+        if (!isForceCancel && isUseCache(request)) {
+            Log.i(TAG, "processRequest: responseWithCache");
+            pauseCache(false);
             responseWithCache(out, offset);
         } else {
+            Log.i(TAG, "processRequest: responseWithoutCache");
+            pauseCache(true);
             responseWithoutCache(out, offset);
         }
+    }
+
+    /**
+     * 是否强制取消缓存
+     */
+    public void cancelCache() {
+        isForceCancel = true;
     }
 
     private boolean isUseCache(GetRequest request) throws ProxyCacheException {
@@ -53,7 +69,9 @@ class HttpProxyCache extends ProxyCache {
         boolean sourceLengthKnown = sourceLength > 0;
         long cacheAvailable = cache.available();
         // do not use cache for partial requests which too far from available cache. It seems user seek video.
-        return !sourceLengthKnown || !request.partial || request.rangeOffset <= cacheAvailable + sourceLength * NO_CACHE_BARRIER;
+        long offset = request.rangeOffset;
+        //如果seek只是超出少许（这里设置为2M）仍然走缓存
+        return !sourceLengthKnown || !request.partial || offset <= cacheAvailable + MINI_OFFSET_CACHE;
     }
 
     private String newResponseHeaders(GetRequest request) throws IOException, ProxyCacheException {
@@ -73,17 +91,27 @@ class HttpProxyCache extends ProxyCache {
                 .toString();
     }
 
-    private void responseWithCache(OutputStream out, long offset) throws ProxyCacheException, IOException {
+    private void responseWithCache(OutputStream out, long offset) throws ProxyCacheException {
         byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
         int readBytes;
-        while ((readBytes = read(buffer, offset, buffer.length)) != -1) {
-            out.write(buffer, 0, readBytes);
-            offset += readBytes;
+        try {
+            while ((readBytes = read(buffer, offset, buffer.length)) != -1 && !stopped) {
+                out.write(buffer, 0, readBytes);
+                offset += readBytes;
+            }
+            out.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                out.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
-        out.flush();
     }
 
-    private void responseWithoutCache(OutputStream out, long offset) throws ProxyCacheException, IOException {
+    private void responseWithoutCache(OutputStream out, long offset) throws ProxyCacheException {
         HttpUrlSource newSourceNoCache = new HttpUrlSource(this.source);
         try {
             newSourceNoCache.open((int) offset);
@@ -94,7 +122,14 @@ class HttpProxyCache extends ProxyCache {
                 offset += readBytes;
             }
             out.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
         } finally {
+            try {
+                out.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             newSourceNoCache.close();
         }
     }

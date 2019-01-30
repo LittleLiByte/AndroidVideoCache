@@ -11,4 +11,10 @@ import java.io.File;
 public interface CacheListener {
 
     void onCacheAvailable(File cacheFile, String url, int percentsAvailable);
+
+    /**
+     * 缓存处理错误回调
+     * @param throwable
+     */
+    void onCacheError(Throwable throwable);
 }
