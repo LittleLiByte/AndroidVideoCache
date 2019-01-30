@@ -1,203 +1,243 @@
-## Video cache support for Android
-[![Android Arsenal](https://img.shields.io/badge/Android%20Arsenal-AndroidVideoCache-brightgreen.svg?style=flat)](http://android-arsenal.com/details/1/1751) [![Build Status](https://api.travis-ci.org/danikula/AndroidVideoCache.svg?branch=master)](https://travis-ci.org/danikula/AndroidVideoCache/) [ ![Download](https://api.bintray.com/packages/alexeydanilov/maven/videocache/images/download.svg) ](https://bintray.com/alexeydanilov/maven/videocache/_latestVersion)
-
-## Table of Content
-- [Why AndroidVideoCache?](#why-androidvideocache)
-- [Features](#features)
-- [Get started](#get-started)
-- [Recipes](#recipes)
-  - [Disk cache limit](#disk-cache-limit)
-  - [Listen caching progress](#listen-caching-progress)
-  - [Providing names for cached files](#providing-names-for-cached-files)
-  - [Adding custom http headers](#adding-custom-http-headers)
-  - [Using exoPlayer](#using-exoplayer)
-  - [Sample](#sample)
-- [Known problems](#known-problems)
-- [Whats new](#whats-new)
-- [Code contributions](#code-contributions)
-- [Where published?](#where-published)
-- [Questions?](#questions)
-- [License](#license)
-
-## Why AndroidVideoCache?
-Because there is no sense to download video a lot of times while streaming!
-`AndroidVideoCache` allows to add caching support to your `VideoView/MediaPlayer`, [ExoPlayer](https://github.com/danikula/AndroidVideoCache/tree/exoPlayer) or any another player with help of single line!
-
-## Features
-- caching to disk during streaming;
-- offline work with cached resources;
-- partial loading;
-- cache limits (max cache size, max files count);
-- multiple clients for same url.
-
-Note `AndroidVideoCache` works only with **direct urls** to media file, it  [**doesn't support**](https://github.com/danikula/AndroidVideoCache/issues/19) any streaming technology like DASH, SmoothStreaming, HLS.  
-
-## Get started
-Just add dependency (`AndroidVideoCache` is available in jcenter):
-```
-dependencies {
-    compile 'com.danikula:videocache:2.7.1'
-}
-```
-
-and use url from proxy instead of original url for adding caching:
-
-```java
-@Override
-protected void onCreate(Bundle savedInstanceState) {
-super.onCreate(savedInstanceState);
-
-    HttpProxyCacheServer proxy = getProxy();
-    String proxyUrl = proxy.getProxyUrl(VIDEO_URL);
-    videoView.setVideoPath(proxyUrl);
-}
-
-private HttpProxyCacheServer getProxy() {
-    // should return single instance of HttpProxyCacheServer shared for whole app.
-}
-```
-
-To guarantee normal work you should use **single** instance of `HttpProxyCacheServer` for whole app.
-For example you can store shared proxy in your `Application`:
-
-```java
-public class App extends Application {
-
-    private HttpProxyCacheServer proxy;
-
-    public static HttpProxyCacheServer getProxy(Context context) {
-        App app = (App) context.getApplicationContext();
-        return app.proxy == null ? (app.proxy = app.newProxy()) : app.proxy;
-    }
-
-    private HttpProxyCacheServer newProxy() {
-        return new HttpProxyCacheServer(this);
-    }
-}
-```
-
-or use [simple factory](http://pastebin.com/s2fafSYS).
-More preferable way is use some dependency injector like [Dagger](http://square.github.io/dagger/).
-
-## Recipes
-### Disk cache limit
-By default `HttpProxyCacheServer` uses 512Mb for caching files. You can change this value:
-
-```java
-private HttpProxyCacheServer newProxy() {
-    return new HttpProxyCacheServer.Builder(this)
-            .maxCacheSize(1024 * 1024 * 1024)       // 1 Gb for cache
-            .build();
-}
-```    
-
-or can limit total count of files in cache: 
-
-```java
-private HttpProxyCacheServer newProxy() {
-    return new HttpProxyCacheServer.Builder(this)
-            .maxCacheFilesCount(20)
-            .build();
-}
-```
-
-or even implement your own `DiskUsage` strategy:
-```java
-private HttpProxyCacheServer newProxy() {
-    return new HttpProxyCacheServer.Builder(this)
-            .diskUsage(new MyCoolDiskUsageStrategy())
-            .build();
-}
-```
+---
+title: AndroidVideoCache修改说明
+tags: 新建,模板,小书匠
+grammar_cjkRuby: true
+---
 
 
-### Listen caching progress
-Use `HttpProxyCacheServer.registerCacheListener(CacheListener listener)` method to set listener with callback `onCacheAvailable(File cacheFile, String url, int percentsAvailable)` to be aware of caching progress. Do not forget to to unsubscribe listener with help of `HttpProxyCacheServer.unregisterCacheListener(CacheListener listener)` method to avoid memory leaks.
+本工程 forked from **danikula/AndroidVideoCache**,版本**2.7.1**
 
-Use `HttpProxyCacheServer.isCached(String url)` method to check was url's content fully cached to file or not.
+## 前言
+因为项目需要，在原[**ijkplayer**](https://github.com/bilibili/ijkplayer)播放器的基础上要加入缓存功能，在调研了一番发现目前比较好的方案就是本地代理方案，其中**danikula/AndroidVideoCache**最为出名。但是AndroidVideoCache上面挂了2k+的issues，并且上一次的更新更是在半年前了。所以为了结合项目实际以及目前已知的问题，针对**danikula/AndroidVideoCache**做了些定制化优化。
 
-See `sample` app for more details.
+原 **danikula/AndroidVideoCache README** 看[这里](https://github.com/danikula/AndroidVideoCache/blob/master/README.md)
+## 正题
+下面会分几点说下自己的定制优化之处。
 
-### Providing names for cached files
-By default `AndroidVideoCache` uses MD5 of video url as file name. But in some cases url is not stable and it can contain some generated parts (e.g. session token). In this case caching mechanism will be broken. To fix it you have to provide own `FileNameGenerator`:
+### 1.视频拖动超过已缓存部分则停止缓存线程下载
+AndroidVideoCache会一直连接网络下载数据，直到把数据下载完全，并且拖动要超过当前已部分缓存的大于当前视频已缓存大小加上视频文件的20%，才会走不缓存分支，并且原来的缓存下载不会立即停止。这样就造成一个问题，当前用户如果网络环境不是足够好或者当前视频文件本身比较大时，拖动到没有缓存的地方需要比较久才会播放。针对这一点所以做了自己的优化。
+ `sourceLength * NO_CACHE_BARRIER`用一个较小的常量值代替，并且用户拖动超过已缓存部分则停止缓存下载线程，使得带宽可以用于从拖动点开始播放，更快地加载出用户所需要的部分。
+ 主要改动ProxyCache以及HttpProxyCache两个文件
+ 
+
 ``` java
-public class MyFileNameGenerator implements FileNameGenerator {
+	//HttpProxyCache.java
+    public void processRequest(GetRequest request, Socket socket) throws IOException, ProxyCacheException {
+        OutputStream out = new BufferedOutputStream(socket.getOutputStream());
+        String responseHeaders = newResponseHeaders(request);
+        out.write(responseHeaders.getBytes("UTF-8"));
 
-    // Urls contain mutable parts (parameter 'sessionToken') and stable video's id (parameter 'videoId').
-    // e. g. http://example.com?videoId=abcqaz&sessionToken=xyz987
-    public String generate(String url) {
-        Uri uri = Uri.parse(url);
-        String videoId = uri.getQueryParameter("videoId");
-        return videoId + ".mp4";
+        long offset = request.rangeOffset;
+
+        if (!isForceCancel && isUseCache(request)) {
+            Log.i(TAG, "processRequest: responseWithCache");
+            pauseCache(false);
+            responseWithCache(out, offset);
+        } else {
+            Log.i(TAG, "processRequest: responseWithoutCache");
+            pauseCache(true);
+            responseWithoutCache(out, offset);
+        }
     }
-}
+	
+	 /**
+     * 是否强制取消缓存
+     */
+    public void cancelCache() {
+        isForceCancel = true;
+    }
 
-...
-HttpProxyCacheServer proxy = HttpProxyCacheServer.Builder(context)
-    .fileNameGenerator(new MyFileNameGenerator())
-    .build()
+    private boolean isUseCache(GetRequest request) throws ProxyCacheException {
+        long sourceLength = source.length();
+        boolean sourceLengthKnown = sourceLength > 0;
+        long cacheAvailable = cache.available();
+        // do not use cache for partial requests which too far from available cache. It seems user seek video.
+        long offset = request.rangeOffset;
+        //如果seek只是超出少许（这里设置为2M）仍然走缓存
+        return !sourceLengthKnown || !request.partial || offset <= cacheAvailable + MINI_OFFSET_CACHE;
+    }
+	...
+	
+    private void responseWithCache(OutputStream out, long offset) throws ProxyCacheException {
+        byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
+        int readBytes;
+        try {
+            while ((readBytes = read(buffer, offset, buffer.length)) != -1 && !stopped) {
+                out.write(buffer, 0, readBytes);
+                offset += readBytes;
+            }
+            out.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                out.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
 ```
+这里对==isUseCache #800023==方法进行了修改，在只超出缓存一点点（这里设置成2M）就会停止缓存，避免在线播放以及缓存下载两个线程同时抢占带宽，造成跳转后需要比较长时间才会加载播放成功。
+==responseWithCache #801e00==方法中对while加入stopped标记位判断，当进入`responseWithoutCache`分支时则会调用父类中的  `pauseCache(true);`方法，将父类中stopped标记为true，停止从代理缓存中返回数据给播放器。具体可以查看`HttpProxyCache`和`ProxyCache`两个类。
 
-### Adding custom http headers
-You can add custom headers to requests with help of `HeadersInjector`:
+
+### 2.脱离播放器实现缓存（离线缓存）
+AndroidVideoCache是依赖于播放器的，所以针对这个局限进行了修改。离线缓存说白了就是提前下载，无论视频是否下载完成，都可以将这提前下载好的部分作为视频缓存使用。这里对于下载不在具体展开，下载功能如何实现自行寻找合适的库。下面对只下载了部分的视频如何加入到本地代理中进行说明（全部已经下载好的视频就不需要经过本地代理了）
+这里假设已部分下载的视频文件后缀为 **.download**;
+
+### 2.1 修改FileCache.java
+添加一个可传入本地具体路径FileCache构造函数
 ``` java
-public class UserAgentHeadersInjector implements HeaderInjector {
+	//FileCache.java
+    public FileCache(String downloadFilePath) throws ProxyCacheException{
+        try {
+            this.diskUsage = new UnlimitedDiskUsage();
+            this.file = new File(downloadFilePath);
+            this.dataFile = new RandomAccessFile(this.file, "rw");
+        } catch (IOException e) {
+            throw new ProxyCacheException("Error using file " + file + " as disc cache", e);
+        }
+    }
+```
+加入了一种缓存文件格式，则判断是否缓存完成需要做相应的修改
 
+``` java
     @Override
-    public Map<String, String> addHeaders(String url) {
-        return Maps.newHashMap("User-Agent", "Cool app v1.1");
-    }
-}
+    public synchronized void complete() throws ProxyCacheException {
+        if (isCompleted()) {
+            return;
+        }
 
-private HttpProxyCacheServer newProxy() {
-    return new HttpProxyCacheServer.Builder(this)
-            .headerInjector(new UserAgentHeadersInjector())
-            .build();
-}
+        close();
+        String fileName;
+        if (file.getName().endsWith(DOWNLOAD_TEMP_POSTFIX)) {
+            //临时下载文件
+            fileName = file.getName().substring(0, file.getName().length() - DOWNLOAD_TEMP_POSTFIX.length());
+        } else {
+            fileName = file.getName().substring(0, file.getName().length() - TEMP_POSTFIX.length());
+        }
+        File completedFile = new File(file.getParentFile(), fileName);
+        boolean renamed = file.renameTo(completedFile);
+        if (!renamed) {
+            throw new ProxyCacheException("Error renaming file " + file + " to " + completedFile + " for completion!");
+        }
+        file = completedFile;
+        try {
+            dataFile = new RandomAccessFile(file, "r");
+            diskUsage.touch(file);
+        } catch (IOException e) {
+            throw new ProxyCacheException("Error opening " + file + " as disc cache", e);
+        }
+    }
+	
+	...
+	
+    private boolean isTempFile(File file) {
+        return file.getName().endsWith(TEMP_POSTFIX) 
+                || file.getName().endsWith(DOWNLOAD_TEMP_POSTFIX);
+    }
+```
+### 2.2 修改HttpProxyCacheServerClients
+添加一个可传入本地视频文件的HttpProxyCacheServerClients构造函数,大部分修改都有注释，所以不再作额外解释了。
+``` java
+    private FileCache mCache;
+    private String downloadPath=null;
+
+    public HttpProxyCacheServerClients(String url, Config config) {
+        this.url = checkNotNull(url);
+        this.config = checkNotNull(config);
+        this.uiCacheListener = new UiListenerHandler(url, listeners);
+    }
+
+    public void processRequest(GetRequest request, Socket socket) {
+        try {
+            startProcessRequest();
+            clientsCount.incrementAndGet();
+            proxyCache.processRequest(request, socket);
+        } catch (Exception e) {
+            e.printStackTrace();
+            if (e instanceof ProxyCacheException){
+                uiCacheListener.onCacheError(e);
+            }
+        } finally {
+            finishProcessRequest();
+        }
+    }
+	...
+    private synchronized void startProcessRequest() throws ProxyCacheException {
+        if (proxyCache == null){
+            if (downloadPath==null){
+                //原proxyCache
+                proxyCache=newHttpProxyCache();
+            }else{
+                //本地已部分下载的视频文件作为缓存
+                newHttpProxyCacheForDownloadFile(downloadPath);
+            }
+        }
+
+        if (isCancelCache){
+            proxyCache.cancelCache();
+        }
+    }
+	......
+    public void shutdown() {
+        listeners.clear();
+        if (proxyCache != null) {
+            proxyCache.registerCacheListener(null);
+            proxyCache.shutdown();
+            proxyCache = null;
+        }
+        clientsCount.set(0);
+        //清除不必要的缓存
+        if (mCache != null && isCancelCache && downloadPath == null) {
+            mCache.file.delete();
+        }
+    }
+
+    /**
+     * 生成以已部分下载的视频为基础的缓存文件
+     * @param downloadFilePath
+     * @return
+     * @throws ProxyCacheException
+     */
+    private void newHttpProxyCacheForDownloadFile(String downloadFilePath) throws ProxyCacheException {
+        HttpUrlSource source = new HttpUrlSource(url, config.sourceInfoStorage, config.headerInjector);
+        mCache = new FileCache(downloadFilePath);
+        HttpProxyCache httpProxyCache = new HttpProxyCache(source, mCache);
+        httpProxyCache.registerCacheListener(uiCacheListener);
+        proxyCache = httpProxyCache;
+    }
 
 ```
 
-### Using exoPlayer
-You can use [`exoPlayer`](https://google.github.io/ExoPlayer/) with `AndroidVideoCache`. See `sample` app in [`exoPlayer`](https://github.com/danikula/AndroidVideoCache/tree/exoPlayer) branch. Note [exoPlayer supports](https://github.com/google/ExoPlayer/commit/bd7be1b5e7cc41a59ebbc348d394820fc857db92) cache as well.  
+对，就是这么简单，本地部分下载的视频文件就可以作为视频的缓存了，并且在播放视频的时候，视频可以继续缓存，将数据续写到本地部分下载的视频文件。
 
-### Sample
-See `sample` app.
+### 3.高码率缓存，低码率不缓存
+这个是我们的项目需要，对高清以上的高码率视频才去缓存，低码率视频则直接在线播放。这部分需要借助播放器本身的能力。这里以IjkPlayer为例，在onPrepare方法中调用HttpProxyCacheServer暴露出来的`cancelCache(mVideoUrl）`，其实是将HttpProxyCache中isForceCancel属性置为true，在seekTo之后重新发起代理请求，这时isForceCancel=true,将不会走缓存分支，而是在线播放。具体过程看源代码。
 
-## Known problems
-- In some cases clients [can't connect](https://github.com/danikula/AndroidVideoCache/issues/134) to local proxy server ('Error pinging server' error). May be it is result of previous error. Note in this case video will be played, but without caching.
+``` kotlin
+public void onPrepared(IMediaPlayer mp) {
+	...
+	if ( !isLocalVideo && bitrate < MINI_BITRATE_USE_CACHE
+                && mCacheManager.getDownloadTempPath(mVideoUrl)==null) 
+		{
+            bufferPoint = -1;
+            mOnBufferUpdateListener.update(this, -1);
+            mCacheManager.cancelCache(mVideoUrl);
+            //注意：seekTo会重新发起请求本地代理，cancelCache后将不会走缓存分支
+            if (lastWatchPosition==-1){
+                seekTo(1);
+            }else {
+                seekTo(lastWatchPosition);
+            }
+        }
+        if (mPreparedListener != null) {
+            mPreparedListener.onPrepared(this);
+        }
+	...
+}
+```
 
-## Whats new
-See Release Notes [here](https://github.com/danikula/AndroidVideoCache/releases)
-
-## Code contributions
-If it's a feature that you think would need to be discussed please open an issue first, otherwise, you can follow this process:
-
-1. [Fork the project](http://help.github.com/fork-a-repo/)
-2. Create a feature branch (git checkout -b my_branch)
-3. Fix a problem. Your code **must** contain test for reproducing problem. Your tests **must be passed** with help of your fix
-4. Push your changes to your new branch (git push origin my_branch)
-5. Initiate a [pull request](http://help.github.com/send-pull-requests/) on github
-6. Rebase [master branch](https://github.com/danikula/AndroidVideoCache) if your local branch is not actual. Merging is not acceptable, only rebase
-6. Your pull request will be reviewed and hopefully merged :)
-
-## Where published?
-[Here](https://bintray.com/alexeydanilov/maven/videocache/view)
-
-## Questions?
-[danikula@gmail.com](mailto:danikula@gmail.com)
-
-## License
-
-    Copyright 2014-2017 Alexey Danilov
-
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
+### 4.其余小修改
+其余部分修改不多，也不重要，就不细说了。值得一提的是清除了slf4j依赖，所有日志部分均使用Andrdoid自带的Log来输入日志。
