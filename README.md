@@ -1,9 +1,3 @@
----
-title: AndroidVideoCache修改说明
-tags: 新建,模板,小书匠
-grammar_cjkRuby: true
----
-
 
 本工程 forked from **danikula/AndroidVideoCache**,版本**2.7.1**
 
