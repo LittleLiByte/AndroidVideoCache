@@ -1,5 +1,7 @@
 package com.danikula.videocache.file;
 
+import android.util.Log;
+
 import com.danikula.videocache.Cache;
 import com.danikula.videocache.ProxyCacheException;
 
@@ -29,7 +31,15 @@ public class FileCache implements Cache {
     public FileCache(String downloadFilePath) throws ProxyCacheException{
         try {
             this.diskUsage = new UnlimitedDiskUsage();
+
             this.file = new File(downloadFilePath);
+            if (!this.file.exists() && downloadFilePath.endsWith(DOWNLOAD_TEMP_POSTFIX)) {
+                downloadFilePath = downloadFilePath.substring(0,
+                        downloadFilePath.length() - DOWNLOAD_TEMP_POSTFIX.length());
+                Log.i("FileCache", "downloadFilePath: " + downloadFilePath);
+                this.file = new File(downloadFilePath);
+            }
+
             this.dataFile = new RandomAccessFile(this.file, "rw");
         } catch (IOException e) {
             throw new ProxyCacheException("Error using file " + file + " as disc cache", e);
@@ -58,7 +68,9 @@ public class FileCache implements Cache {
             return (int) dataFile.length();
         } catch (IOException e) {
             throw new ProxyCacheException("Error reading length of file " + file, e);
+//            e.printStackTrace();
         }
+//        return 0;
     }
 
     @Override
@@ -139,7 +151,8 @@ public class FileCache implements Cache {
     }
 
     private boolean isTempFile(File file) {
-        return file.getName().endsWith(TEMP_POSTFIX)||file.getName().endsWith(DOWNLOAD_TEMP_POSTFIX);
+        return file.getName().endsWith(TEMP_POSTFIX)
+                || file.getName().endsWith(DOWNLOAD_TEMP_POSTFIX);
     }
 
 }

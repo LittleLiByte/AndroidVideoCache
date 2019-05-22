@@ -170,7 +170,7 @@ class ProxyCache {
 
     private void closeSource() {
         try {
-            Log.d(TAG, "close sources!!!");
+            Log.i(TAG, "close sources!");
             source.close();
         } catch (ProxyCacheException e) {
             onError(new ProxyCacheException("Error closing source " + source, e));

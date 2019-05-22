@@ -42,7 +42,7 @@ final class StorageUtils {
      * @param preferExternal Whether prefer external location for cache
      * @return Cache {@link File directory}.<br />
      * <b>NOTE:</b> Can be null in some unpredictable cases (if SD card is unmounted and
-     * {@link android.content.Context#getCacheDir() Context.getCacheDir()} returns null).
+     * {@link Context#getCacheDir() Context.getCacheDir()} returns null).
      */
     private static File getCacheDirectory(Context context, boolean preferExternal) {
         File appCacheDir = null;

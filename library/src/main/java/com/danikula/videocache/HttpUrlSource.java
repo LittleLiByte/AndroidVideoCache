@@ -32,7 +32,9 @@ import static java.net.HttpURLConnection.HTTP_SEE_OTHER;
 public class HttpUrlSource implements Source {
 
     public static final String TAG=HttpUrlSource.class.getSimpleName();
-
+    private final static int DEFAULT_CONN_TIME_OUT = 15000;
+    private final static int DEFAULT_SEND_TIME_OUT = 20000;
+    private final static int DEFAULT_RECV_TIME_OUT = 30000;
     private static final int MAX_REDIRECTS = 5;
     private final SourceInfoStorage sourceInfoStorage;
     private final HeaderInjector headerInjector;
@@ -73,7 +75,7 @@ public class HttpUrlSource implements Source {
     @Override
     public void open(long offset) throws ProxyCacheException {
         try {
-            connection = openConnection(offset, -1);
+            connection = openConnection(offset, -1,null);
             String mime = connection.getContentType();
             inputStream = new BufferedInputStream(connection.getInputStream(), DEFAULT_BUFFER_SIZE);
             long length = readSourceAvailableBytes(connection, offset, connection.getResponseCode());
@@ -132,7 +134,7 @@ public class HttpUrlSource implements Source {
         HttpURLConnection urlConnection = null;
         InputStream inputStream = null;
         try {
-            urlConnection = openConnection(0, 10000);
+            urlConnection = openConnection(0, 10000,null);
             long length = getContentLength(urlConnection);
             String mime = urlConnection.getContentType();
             inputStream = urlConnection.getInputStream();
@@ -149,13 +151,18 @@ public class HttpUrlSource implements Source {
         }
     }
 
-    private HttpURLConnection openConnection(long offset, int timeout) throws IOException, ProxyCacheException {
+    private HttpURLConnection openConnection(long offset, int timeout,String method) throws IOException, ProxyCacheException {
         HttpURLConnection connection;
         boolean redirected;
         int redirectCount = 0;
         String url = this.sourceInfo.url;
         do {
-            Log.i(TAG, "Open connection " + (offset > 0 ? " with offset " + offset : "") + " to " + url);
+            if (timeout>0){
+                Log.i(TAG, "fetchContentInfo " + (offset > 0 ? " with offset " + offset : "") + " to " + url);
+            }else {
+                Log.i(TAG, "open connection " + (offset > 0 ? " with offset " + offset : "") + " to " + url);
+            }
+
             connection = (HttpURLConnection) new URL(url).openConnection();
             injectCustomHeaders(connection, url);
             if (offset > 0) {
@@ -164,7 +171,15 @@ public class HttpUrlSource implements Source {
             if (timeout > 0) {
                 connection.setConnectTimeout(timeout);
                 connection.setReadTimeout(timeout);
+            } else {
+                connection.setConnectTimeout(DEFAULT_CONN_TIME_OUT);
+                connection.setReadTimeout(DEFAULT_RECV_TIME_OUT);
             }
+
+            if (method!=null){
+                connection.setRequestMethod(method);
+            }
+
             int code = connection.getResponseCode();
             redirected = code == HTTP_MOVED_PERM || code == HTTP_MOVED_TEMP || code == HTTP_SEE_OTHER;
             if (redirected) {
